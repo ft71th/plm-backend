@@ -118,6 +118,63 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+
+// Get all hardware types
+app.get('/api/hardware-types', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM hardware_types ORDER BY name');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get hardware types error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Add new hardware type
+app.post('/api/hardware-types', authenticateToken, async (req, res) => {
+  try {
+    const { name, icon, description } = req.body;
+    const result = await pool.query(
+      'INSERT INTO hardware_types (name, icon, description, created_by) VALUES ($1, $2, $3, $4) RETURNING *',
+      [name, icon, description, req.user.id]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Add hardware type error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Update hardware type
+app.put('/api/hardware-types/:id', authenticateToken, async (req, res) => {
+  try {
+    const { name, icon, description } = req.body;
+    const result = await pool.query(
+      'UPDATE hardware_types SET name = $1, icon = $2, description = $3 WHERE id = $4 RETURNING *',
+      [name, icon, description, req.params.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Hardware type not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Update hardware type error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
+// Delete hardware type
+app.delete('/api/hardware-types/:id', authenticateToken, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM hardware_types WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete hardware type error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Get current user
 app.get('/api/auth/me', authenticateToken, async (req, res) => {
   try {
