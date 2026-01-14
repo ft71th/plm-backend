@@ -8,6 +8,8 @@ const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
+const libraryRoutes = require('./routes/library');
+
 
 const app = express();
 const server = http.createServer(app);
@@ -84,6 +86,8 @@ app.post('/api/auth/register', async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+app.use('/api/library', libraryRoutes(pool));
 
 // Login
 app.post('/api/auth/login', async (req, res) => {
