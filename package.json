@@ -9,6 +9,9 @@
     "init-db": "node init-db.js"
   },
   "dependencies": {
+    "@hocuspocus/extension-database": "^3.4.4",
+    "@hocuspocus/extension-logger": "^3.4.4",
+    "@hocuspocus/server": "^3.4.4",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
@@ -16,7 +19,8 @@
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.11.3",
     "socket.io": "^4.7.2",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

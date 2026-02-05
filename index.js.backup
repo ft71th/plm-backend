@@ -1,4 +1,4 @@
-// index.js - Main server file with Yjs/Hocuspocus collaboration
+// index.js - Main server file
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -10,16 +10,12 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const libraryRoutes = require('./routes/library');
 
-// Hocuspocus (Yjs collaboration server)
-
-const { Hocuspocus } = require('@hocuspocus/server');
-
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:3001"],
+    origin: "http://localhost:3000",
     methods: ["GET", "POST", "PUT", "DELETE"]
   }
 });
@@ -54,32 +50,6 @@ const authenticateToken = (req, res, next) => {
     next();
   });
 };
-
-// ============== HOCUSPOCUS COLLABORATION SERVER ==============
-const WebSocket = require('ws');
-const COLLAB_PORT = process.env.COLLAB_PORT || 1235;
-
-const hocuspocus = new Hocuspocus({
-  async onAuthenticate({ token }) {
-    if (!token) throw new Error('Token required');
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    return { user: { id: payload.id } };
-  },
-});
-
-// Skapa WebSocket-server för Hocuspocus
-const wss = new WebSocket.Server({ port: COLLAB_PORT });
-
-wss.on('connection', (ws, req) => {
-  hocuspocus.handleConnection(ws, req);
-});
-
-wss.on('listening', () => {
-  console.log(`🤝 Collab ready on ws://localhost:${COLLAB_PORT}`);
-});
-// DEBUG: Visa tillgängliga metoder
-console.log('Hocuspocus methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(hocuspocus)));
-
 
 // ============== AUTH ROUTES ==============
 
@@ -293,11 +263,13 @@ app.get('/api/projects', authenticateToken, async (req, res) => {
 // Create project
 app.post('/api/projects', authenticateToken, async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, version } = req.body;
+    
     const result = await pool.query(
-      'INSERT INTO projects (name, description, owner_id) VALUES ($1, $2, $3) RETURNING *',
-      [name, description, req.user.id]
+      'INSERT INTO projects (name, description, version, owner_id) VALUES ($1, $2, $3, $4) RETURNING *',
+      [name, description || '', version || '1.0', req.user.id]
     );
+    
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Create project error:', error);
@@ -422,7 +394,7 @@ app.put('/api/projects/:id', authenticateToken, async (req, res) => {
     
     await client.query('COMMIT');
     
-    // Notify other users via Socket.io
+    // Notify other users
     io.to(`project-${id}`).emit('project-updated', { userId: req.user.id });
     
     res.json({ success: true });
@@ -454,8 +426,6 @@ app.delete('/api/projects/:id', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Not authorized' });
     }
     
-    // Rensa Yjs-dokument också
-    await pool.query('DELETE FROM yjs_documents WHERE name = $1', [`project-${id}`]);
     await pool.query('DELETE FROM projects WHERE id = $1', [id]);
     
     res.json({ success: true });
@@ -465,129 +435,7 @@ app.delete('/api/projects/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// ============== PROJECT MEMBERS & PERMISSIONS ==============
-
-// Get project members
-app.get('/api/projects/:id/members', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await pool.query(`
-      SELECT u.id, u.name, u.email, 
-        CASE WHEN p.owner_id = u.id THEN 'owner' ELSE pm.role END as role
-      FROM project_members pm
-      JOIN users u ON pm.user_id = u.id
-      JOIN projects p ON p.id = pm.project_id
-      WHERE pm.project_id = $1
-      UNION
-      SELECT u.id, u.name, u.email, 'owner' as role
-      FROM projects p
-      JOIN users u ON p.owner_id = u.id
-      WHERE p.id = $1
-    `, [id]);
-    
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get members error:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// Add project member
-app.post('/api/projects/:id/members', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { email, role } = req.body;
-    
-    // Verifiera att anroparen är owner eller admin
-    const project = await pool.query(
-      'SELECT owner_id FROM projects WHERE id = $1', [id]
-    );
-    
-    if (project.rows.length === 0) {
-      return res.status(404).json({ error: 'Project not found' });
-    }
-    
-    const isOwner = project.rows[0].owner_id === req.user.id;
-    if (!isOwner) {
-      const memberCheck = await pool.query(
-        'SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2',
-        [id, req.user.id]
-      );
-      if (!memberCheck.rows[0] || memberCheck.rows[0].role !== 'admin') {
-        return res.status(403).json({ error: 'Only owners and admins can add members' });
-      }
-    }
-    
-    // Hitta användaren
-    const userResult = await pool.query('SELECT id, name, email FROM users WHERE email = $1', [email]);
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    const userId = userResult.rows[0].id;
-    
-    // Lägg till eller uppdatera roll
-    await pool.query(`
-      INSERT INTO project_members (project_id, user_id, role)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (project_id, user_id) DO UPDATE SET role = $3
-    `, [id, userId, role || 'editor']);
-    
-    res.json({ success: true, member: { ...userResult.rows[0], role: role || 'editor' } });
-  } catch (error) {
-    console.error('Add member error:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// Remove project member
-app.delete('/api/projects/:id/members/:userId', authenticateToken, async (req, res) => {
-  try {
-    const { id, userId } = req.params;
-    
-    // Verifiera behörighet
-    const project = await pool.query('SELECT owner_id FROM projects WHERE id = $1', [id]);
-    if (project.rows[0]?.owner_id !== req.user.id) {
-      return res.status(403).json({ error: 'Only owner can remove members' });
-    }
-    
-    await pool.query(
-      'DELETE FROM project_members WHERE project_id = $1 AND user_id = $2',
-      [id, userId]
-    );
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Remove member error:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// Update member role
-app.put('/api/projects/:id/members/:userId', authenticateToken, async (req, res) => {
-  try {
-    const { id, userId } = req.params;
-    const { role } = req.body;
-    
-    const validRoles = ['admin', 'editor', 'reviewer', 'viewer'];
-    if (!validRoles.includes(role)) {
-      return res.status(400).json({ error: 'Invalid role' });
-    }
-    
-    await pool.query(
-      'UPDATE project_members SET role = $1 WHERE project_id = $2 AND user_id = $3',
-      [role, id, userId]
-    );
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Update role error:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-
-// ============== REAL-TIME COLLABORATION (Socket.io - behålls för notifikationer) ==============
+// ============== REAL-TIME COLLABORATION ==============
 
 // Track active users per project
 const activeUsers = new Map();
@@ -626,7 +474,7 @@ io.on('connection', (socket) => {
     }
   });
   
-  // Node moved (legacy — Yjs hanterar detta nu, behålls för bakåtkompatibilitet)
+  // Node moved
   socket.on('node-moved', ({ projectId, nodeId, position }) => {
     socket.to(`project-${projectId}`).emit('node-moved', { nodeId, position });
   });
@@ -658,7 +506,7 @@ io.on('connection', (socket) => {
   
   // Cursor position (for showing other users' cursors)
   socket.on('cursor-move', ({ projectId, position, user }) => {
-    socket.to(`project-${projectId}`).emit('cursor-move', { position, user, socketId: socket.id });
+    socket.to(`project-${projectId}`).emit('cursor-move', { position, user, odocId: socket.id });
   });
   
   // Disconnect
@@ -677,32 +525,13 @@ io.on('connection', (socket) => {
   });
 });
 
-
-// ============== HELPER FUNCTIONS ==============
-
-function generateUserColor(userId) {
-  const colors = [
-    '#3B82F6', '#EF4444', '#10B981', '#F59E0B',
-    '#8B5CF6', '#EC4899', '#06B6D4', '#F97316',
-    '#14B8A6', '#6366F1', '#D946EF', '#0EA5E9',
-  ];
-  let hash = 0;
-  const str = String(userId);
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return colors[Math.abs(hash) % colors.length];
-}
-
-
 // ============== START SERVER ==============
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log('');
   console.log('🚀 PLM Backend Server Running!');
-  console.log(`📡 API:        http://localhost:${PORT}`);
-  console.log(`🔌 Socket.io:  ws://localhost:${PORT}`);
-  console.log(`🤝 Collab:     ws://localhost:${COLLAB_PORT}`);
+  console.log(`📡 API: http://localhost:${PORT}`);
+  console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
   console.log('');
 });
