@@ -13,6 +13,7 @@ const libraryRoutes = require('./routes/library');
 // Hocuspocus (Yjs collaboration server)
 
 const { Hocuspocus } = require('@hocuspocus/server');
+const { Database } = require('@hocuspocus/extension-database');
 
 
 const app = express();
@@ -60,11 +61,53 @@ const WebSocket = require('ws');
 const COLLAB_PORT = process.env.COLLAB_PORT || 1235;
 
 const hocuspocus = new Hocuspocus({
+  // Debounce - spara efter 2 sekunder av inaktivitet
+  debounce: 2000,
+  
   async onAuthenticate({ token }) {
     if (!token) throw new Error('Token required');
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     return { user: { id: payload.id } };
   },
+
+  // Debug: logga när dokument ändras
+  async onChange({ documentName }) {
+    console.log(`📝 Document changed: ${documentName}`);
+  },
+
+  // Debug: logga när dokument ska sparas
+  async onStoreDocument({ documentName, state }) {
+    console.log(`💾 Storing document: ${documentName} (${state.length} bytes)`);
+  },
+
+  extensions: [
+    new Database({
+      fetch: async ({ documentName }) => {
+        console.log(`📥 Loading Yjs document: ${documentName}`);
+        const result = await pool.query(
+          'SELECT data FROM yjs_documents WHERE name = $1',
+          [documentName]
+        );
+        if (result.rows.length > 0) {
+          console.log(`✅ Found existing document: ${documentName}`);
+          return result.rows[0].data;
+        }
+        console.log(`🆕 No existing document, starting fresh: ${documentName}`);
+        return null;
+      },
+      
+      store: async ({ documentName, state }) => {
+        console.log(`💾 Saving Yjs document: ${documentName} (${state.length} bytes)`);
+        await pool.query(`
+          INSERT INTO yjs_documents (name, data, updated_at)
+          VALUES ($1, $2, NOW())
+          ON CONFLICT (name)
+          DO UPDATE SET data = $2, updated_at = NOW()
+        `, [documentName, state]);
+        console.log(`✅ Saved successfully: ${documentName}`);
+      },
+    }),
+  ],
 });
 
 // Skapa WebSocket-server för Hocuspocus
@@ -312,7 +355,10 @@ app.get('/api/projects/:id', authenticateToken, async (req, res) => {
     
     // Get project
     const projectResult = await pool.query(
-      'SELECT * FROM projects WHERE id = $1',
+      `SELECT p.*, u.name as owner_name 
+       FROM projects p 
+       LEFT JOIN users u ON p.owner_id = u.id 
+       WHERE p.id = $1`,
       [id]
     );
     
@@ -522,6 +568,11 @@ app.post('/api/projects/:id/members', authenticateToken, async (req, res) => {
     const userResult = await pool.query('SELECT id, name, email FROM users WHERE email = $1', [email]);
     if (userResult.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Förhindra att ägaren läggs till som member
+    if (userResult.rows[0].id === project.rows[0].owner_id) {
+      return res.status(400).json({ error: 'Owner cannot be added as a member' });
     }
     
     const userId = userResult.rows[0].id;
