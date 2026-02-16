@@ -9,6 +9,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const libraryRoutes = require('./routes/library');
+const whiteboardTaskRoutes = require('./routes/whiteboard-tasks');
 
 // Hocuspocus (Yjs collaboration server)
 
@@ -20,7 +21,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:3001"],
+    origin: ["http://localhost:3000", "http://localhost:3001", "http://localhost:5173", "http://localhost:5174"],
     methods: ["GET", "POST", "PUT", "DELETE"]
   }
 });
@@ -161,6 +162,7 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 app.use('/api/library', libraryRoutes(pool));
+app.use('/api', whiteboardTaskRoutes(pool, authenticateToken));
 
 // Login
 app.post('/api/auth/login', async (req, res) => {

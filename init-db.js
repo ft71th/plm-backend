@@ -122,6 +122,20 @@ const initDB = async () => {
     `);
     console.log('✅ Activity log table created');
 
+    // Gantt / Timeline data (per project, JSONB blob)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS gantt_data (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        project_id UUID REFERENCES projects(id) ON DELETE CASCADE UNIQUE,
+        data JSONB NOT NULL DEFAULT '{}',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_gantt_data_project_id ON gantt_data(project_id);
+    `);
+    console.log('✅ Gantt data table created');
+
     console.log('');
     console.log('🎉 Database initialization complete!');
     
