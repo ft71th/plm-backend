@@ -640,6 +640,44 @@ app.put('/api/projects/:id/members/:userId', authenticateToken, async (req, res)
 });
 
 
+// ============== SEQUENCE DIAGRAM ROUTES ==============
+
+// GET /api/projects/:id/sequences
+app.get('/api/projects/:id/sequences', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT data FROM project_sequences WHERE project_id = $1',
+      [req.params.id]
+    );
+    if (result.rows.length > 0) {
+      res.json({ data: result.rows[0].data });
+    } else {
+      res.json({ data: [] });
+    }
+  } catch (err) {
+    console.error('Get sequences error:', err);
+    res.status(500).json({ error: 'Failed to load sequence diagrams' });
+  }
+});
+
+// PUT /api/projects/:id/sequences
+app.put('/api/projects/:id/sequences', authenticateToken, async (req, res) => {
+  try {
+    const { data } = req.body;
+    await pool.query(
+      `INSERT INTO project_sequences (project_id, data, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (project_id)
+       DO UPDATE SET data = $2, updated_at = NOW()`,
+      [req.params.id, JSON.stringify(data)]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Save sequences error:', err);
+    res.status(500).json({ error: 'Failed to save sequence diagrams' });
+  }
+});
+
 // ============== REAL-TIME COLLABORATION (Socket.io - behålls för notifikationer) ==============
 
 // Track active users per project
