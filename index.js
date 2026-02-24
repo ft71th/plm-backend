@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const libraryRoutes = require('./routes/library');
 const whiteboardTaskRoutes = require('./routes/whiteboard-tasks');
+const documentRoutes = require('./routes/documents');
 
 // Hocuspocus (Yjs collaboration server)
 
@@ -163,6 +164,7 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.use('/api/library', libraryRoutes(pool));
 app.use('/api', whiteboardTaskRoutes(pool, authenticateToken));
+app.use('/api', documentRoutes(pool, authenticateToken));
 
 // Login
 app.post('/api/auth/login', async (req, res) => {
