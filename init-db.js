@@ -136,6 +136,83 @@ const initDB = async () => {
     `);
     console.log('✅ Gantt data table created');
 
+    // Document templates
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS doc_templates (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL,
+        type VARCHAR(100) NOT NULL,
+        category VARCHAR(100) NOT NULL,
+        description TEXT DEFAULT '',
+        version VARCHAR(50) DEFAULT '1.0',
+        schema JSONB NOT NULL DEFAULT '{}',
+        company_id UUID,
+        created_by UUID REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_doc_templates_category ON doc_templates(category);
+    `);
+    console.log('✅ Doc templates table created');
+
+    // Documents (project-specific, from templates)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS documents (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        template_id UUID REFERENCES doc_templates(id),
+        project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+        title VARCHAR(255) NOT NULL,
+        doc_number VARCHAR(100),
+        version VARCHAR(50) DEFAULT '0.1',
+        status VARCHAR(50) DEFAULT 'draft',
+        metadata JSONB DEFAULT '{}',
+        section_data JSONB DEFAULT '{}',
+        revision_log JSONB DEFAULT '[]',
+        created_by VARCHAR(255) DEFAULT 'system',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_documents_project_id ON documents(project_id);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_documents_template_id ON documents(template_id);
+    `);
+    console.log('✅ Documents table created');
+
+    // ── HAL Configs ───────────────────────────────────────
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project_hal (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE UNIQUE,
+        data JSONB NOT NULL DEFAULT '{}',
+        version VARCHAR(50) DEFAULT '0.1',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_project_hal_project_id ON project_hal(project_id);
+    `);
+    // HAL version history
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project_hal_versions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        version VARCHAR(50) NOT NULL,
+        data JSONB NOT NULL,
+        changes TEXT DEFAULT '',
+        created_by VARCHAR(255) DEFAULT 'system',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_hal_versions_project_id ON project_hal_versions(project_id);
+    `);
+    console.log('✅ HAL tables created');
+
     console.log('');
     console.log('🎉 Database initialization complete!');
     
